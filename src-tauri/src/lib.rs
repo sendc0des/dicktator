@@ -481,6 +481,11 @@ pub fn run() {
             let current_dir = std::env::current_dir().unwrap();
             let server_path = current_dir.join("bin").join("whisper-server.exe");
             let model_path = current_dir.join("bin").join("ggml-large-v3-turbo-q5_0.bin");
+            // Forces Windows to kill any orphaned ghost instances before booting a fresh one
+            let _ = std::process::Command::new("taskkill")
+                .args(&["/F", "/IM", "whisper-server.exe"])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .status();
 
             std::thread::spawn(move || {
                 use std::os::windows::process::CommandExt;
