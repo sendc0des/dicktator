@@ -79,23 +79,14 @@ async fn process_with_local_whisper(file_path: &std::path::Path) -> Result<Strin
     Ok(raw_transcript)
 }
 
-async fn process_with_ollama(raw_text: &str, context_rules: &str) -> Result<String, String> {
+async fn process_with_ollama(system_prompt: &str, user_content: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     
-    let base_prompt = "You are an elite voice dictation post-processor. \
-                    Your entire job is to convert raw speech transcripts into clean, natural text according to the current context. \
-                    Rules: \
-                    1. Preserve meaning exactly; never summarize or paraphrase. \
-                    2. Fix grammar, spelling, capitalization, punctuation and spacing. \
-                    3. Strip speech disfluencies (um, uh, like) and resolve self-corrections/backtracking seamlessly. \
-                    4. Do NOT output notes, explanations, markdown, or quotation marks unless they are required and make sense. Output raw text ONLY.";
-
-    // 2. Inject the rules and transcript using format! with {} placeholders
+    // Clean dynamic integration for Ollama text-generation endpoint
     let combined_prompt = format!(
-        "System Instructions:\n{}\n\nContext Modification Rules:\n{}\n\nRaw Audio Transcript:\n\"{}\"\n\nPolished Output:", 
-        base_prompt, 
-        context_rules, 
-        raw_text
+        "System Instructions:\n{}\n\nUser Input Context:\n{}\n\nFinal Output:", 
+        system_prompt, 
+        user_content
     );
 
     let payload = serde_json::json!({
@@ -122,75 +113,43 @@ async fn process_with_ollama(raw_text: &str, context_rules: &str) -> Result<Stri
 // IMPORTANT: Replace this with your actual OpenRouter API Key
 const OPENROUTER_API_KEY: &str = "";
 
-async fn process_with_openrouter(file_path: &std::path::Path, context_rules: &str) -> Result<String, String> {
+async fn process_with_openrouter(file_path: &std::path::Path, system_prompt: &str, user_content: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     
-    // --- PHASE 1: WHISPER LARGE V3 (Transcription) ---
+    // --- PHASE 1: WHISPER TRANSCRIPTION ---
     let audio_bytes = std::fs::read(file_path).map_err(|e| format!("Failed to read audio: {}", e))?;
     let base64_audio = general_purpose::STANDARD.encode(audio_bytes);
 
     let stt_payload = json!({
         "model": "openai/whisper-large-v3",
-        "input_audio": {
-            "data": base64_audio,
-            "format": "wav"
-        }
+        "input_audio": { "data": base64_audio, "format": "wav" }
     });
 
     let stt_res = client.post("https://openrouter.ai/api/v1/audio/transcriptions")
         .header("Authorization", format!("Bearer {}", OPENROUTER_API_KEY))
-        .json(&stt_payload)
-        .send()
-        .await
+        .json(&stt_payload).send().await
         .map_err(|e| format!("OpenRouter STT request failed: {}", e))?;
 
     let stt_json: serde_json::Value = stt_res.json().await.map_err(|e| e.to_string())?;
     let raw_transcript = stt_json["text"].as_str().unwrap_or("").trim().to_string();
     
-    if raw_transcript.is_empty() {
-        return Ok("".to_string());
-    }
+    if raw_transcript.is_empty() { return Ok("".to_string()); }
 
-    // --- PHASE 2: LLAMA 3.1 8B (Copyediting with Context) ---
-    // We use format! to seamlessly embed the custom platform rules into the LLM's brain
-    let system_prompt = "You are an elite voice dictation post-processor. \
-        Convert raw speech transcripts into clean, natural text. \
-        Rules: \
-        1. Preserve meaning exactly; never summarize or paraphrase. \
-        2. Fix grammar, spelling, capitalization, punctuation and spacing. \
-        3. Strip speech disfluencies (um, uh, like) and resolve self-corrections/backtracking seamlessly. \
-        4. Do NOT output notes, explanations, markdown, or quotation marks. Output raw text ONLY. \
-        \
-        Examples: \
-        Input: let's meet at 5 no wait let's make it 6 o'clock \
-        Output: Let's meet at 6 o'clock. \
-        Input: i think we should should check the code... sorry, the logs. \
-        Output: I think we should check the logs. \
-        Input: it's a very, very critical issue \
-        Output: It's a very, very critical issue.
-        Return ONLY the formatted text.";
-
-    let combined_prompt = format!(
-        "System Instructions:\n{}\n\nContext Modification Rules:\n{}\n\nRaw Audio Transcript:\n\"{}\"\n\nPolished Output:", 
-        system_prompt, 
-        context_rules,
-        raw_transcript
-    );
+    // --- PHASE 2: DYNAMIC INTENT COMPILATION ---
+    let final_user_message = user_content.replace("{VOICE_COMMAND}", &raw_transcript);
 
     let llm_payload = json!({
         "model": "meta-llama/llama-3.1-8b-instruct",
         "messages": [
-            {"role": "system", "content": combined_prompt},
-            {"role": "user", "content": raw_transcript}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": final_user_message}
         ],
         "temperature": 0.0
     });
 
     let llm_res = client.post("https://openrouter.ai/api/v1/chat/completions")
         .header("Authorization", format!("Bearer {}", OPENROUTER_API_KEY))
-        .json(&llm_payload)
-        .send()
-        .await
+        .json(&llm_payload).send().await
         .map_err(|e| format!("OpenRouter LLM request failed: {}", e))?;
 
     let llm_json: serde_json::Value = llm_res.json().await.map_err(|e| e.to_string())?;
@@ -319,28 +278,51 @@ async fn stop_recording(state: State<'_, AppState>, app: tauri::AppHandle) -> Re
     // Flush out the remaining active hardware audio buffer frames safely
     std::thread::sleep(std::time::Duration::from_millis(400));
     
-    // --- 4. SYSTEM CONTEXT COMPILATION ---
+    // --- 4. DYNAMIC PROMPT SYSTEM MODE SPLITTING ---
     let (active_app, window_title) = get_active_app_context();
     println!("🔌 Context Captured -> App: {}, Title: {}", active_app, window_title);
 
-    let context_instructions = if !command_mode_text.is_empty() {
+    let (system_prompt, user_content) = if !command_mode_text.is_empty() {
         println!("🪄 Command Mode Activated for text: \"{}\"", command_mode_text);
-        format!(
-            "App: '{}', Title: '{}'.\n\
-             COMMAND MODE: The user highlighted the following text: \"{}\".\n\
-             The raw transcript is a VOICE COMMAND instructing you on how to rewrite, format, or alter this highlighted text.\n\
-             CRITICAL RULE: Execute the command on the highlighted text and return ONLY the newly rewritten text. Do not reply to the user. Do not include quotes.",
+        
+        let sys = "You are an elite text-editing engine operating in COMMAND MODE. \
+                   You are provided with a segment of highlighted text and a spoken voice command. \
+                   Your single goal is to execute the instructions of the voice command directly onto the highlighted text. \
+                   Strict Rules: \
+                   1. Output ONLY the finalized, rewritten text. \
+                   2. Do NOT include explanations, notes, conversational replies, markdown, or wrap code blocks in fences. \
+                   3. If the voice command specifies a grammar correction (e.g., 'correct the grammar'), output the modified sentence cleanly without altering vocabulary meaning.";
+
+        let user = format!(
+            "Target App Context: '{}' ({})\n\
+             Highlighted Text to Modify:\n\"{}\"\n\n\
+             Voice Command Instruction:\n\"{{VOICE_COMMAND}}\"",
             active_app, window_title, command_mode_text
-        )
-    } else if preceding_text.is_empty() {
-        format!("App: '{}', Title: '{}'. You are starting a new sentence. Capitalize the first letter normally.", active_app, window_title)
+        );
+        
+        (sys.to_string(), user)
     } else {
-        format!(
-            "App: '{}', Title: '{}'.\n\
-             <preceding_text>{}</preceding_text>\n\
-             CRITICAL RULE: DO NOT output the <preceding_text> under any circumstances. Use it ONLY to decide your capitalization. If <preceding_text> ends with a comma, space, or letter, you MUST start your output with a lowercase letter. If it ends with a period, capitalize normally.",
-            active_app, window_title, preceding_text
-        )
+        // Standard high-performance dictation mode
+        let sys = "You are an elite voice dictation post-processor. \
+                   Your entire job is to convert raw speech transcripts into clean, natural text according to the current context. \
+                   Rules: \
+                   1. Preserve meaning exactly; never summarize or paraphrase. \
+                   2. Fix grammar, spelling, capitalization, punctuation and spacing. \
+                   3. Strip speech disfluencies (um, uh, like) and resolve self-corrections/backtracking seamlessly. \
+                   4. Do NOT output notes, explanations, markdown, or quotation marks unless they are required and make sense. Output raw text ONLY.";
+
+        let user = if preceding_text.is_empty() {
+            "The user is typing a new sentence.\nRaw Audio Transcript: \"{VOICE_COMMAND}\"".to_string()
+        } else {
+            format!(
+                "Preceding line text already written: \"{}\"\n\
+                 CRITICAL RULE: Do NOT reproduce the preceding line text. Use it only to apply context-aware spacing and capitalization rules.\n\
+                 Raw Audio Transcript: \"{{VOICE_COMMAND}}\"",
+                preceding_text
+            )
+        };
+        
+        (sys.to_string(), user)
     };
 
     // Wait a brief moment for the hardware stream to flush out gracefully
@@ -437,17 +419,17 @@ async fn stop_recording(state: State<'_, AppState>, app: tauri::AppHandle) -> Re
     
     // --- 5. PIPELINE ROUTING ---
     let polished_text = if USE_CLOUD_API {
-        process_with_openrouter(&file_path, &context_instructions).await?
+        process_with_openrouter(&file_path, &system_prompt, &user_content).await?
     } else {
-        // Fetch raw text from the GPU C++ server
         let raw_transcript = process_with_local_whisper(&file_path).await?;
         
         if raw_transcript.is_empty() {
             "".to_string()
         } else {
-            // PASS IT TO THE LLM INSTEAD OF TERMINATING EARLY!
             println!("🧠 Formatting transcript with local Ollama engine...");
-            process_with_ollama(&raw_transcript, &context_instructions).await?
+            // Swap out placeholder for local LLM consumption
+            let final_user_content = user_content.replace("{VOICE_COMMAND}", &raw_transcript);
+            process_with_ollama(&system_prompt, &final_user_content).await?
         }
     };
 
