@@ -1,45 +1,69 @@
-# 🎙️ Dicktator 
+# 🎙️ Dicktator
 
-An elite, low-latency, system-wide local voice dictation copyeditor built with **Tauri**, **Rust**, and **Natively Accelerated C++**. 
+> **The Privacy-First, Open-Source & Fully Local Alternative to Wispr Flow**
 
-Dicktator listens to your speech globally via a custom hardware shortcut (`Ctrl + Space`), feeds raw audio directly into your local GPU using an embedded `whisper.cpp` server, and passes the transcript to a localized LLM (`qwen2.5:3b`) to resolve self-corrections, stutters, and apply seamless line-level context formatting directly into your active window.
+**Dicktator** is a ultra-fast, system-wide voice dictation copyeditor for Windows. It acts as a free and completely offline alternative to paid dictation tools like Wispr Flow. 
 
----
-
-## ⚡ Features
-
-*   **GPU-Accelerated Local STT:** Seamless integration with `whisper.cpp` using NVIDIA CUDA (`cublas`) execution. Audio processing takes milliseconds, bypassing sluggish Python runtimes.
-*   **Intelligent Post-Processing:** Powered by Ollama (`qwen2.5:3b` / `llama3.2:3b`). It automatically clears out verbal fillers (`um`, `uh`, `like`), fixes grammar, and resolves real-time self-corrections (e.g., *"Let's meet at 5... no wait, make it 6"* outputting precisely as *"Let's meet at 6."*).
-*   **Line-Level Context Awareness:** Captures up to the last 300 characters of your current cursor line dynamically using native hardware macros, ensuring perfect punctuation continuity and trailing space logic.
-*   **Custom Vocabulary Injection:** Bias neural tokens on the fly using the integrated custom phrase dictionary for seamless industry jargon, code notation, and custom brand name spelling.
-*   **Zero-Config Engine Lifecycle:** The background C++ Whisper inference server automatically boots in a silent, windowless state when the app initializes and cleans up perfectly upon termination.
+Instead of routing your private speech and active application context to cloud servers, Dicktator processes everything **100% locally on your machine**. Powered by a native C++ `whisper.cpp` engine, local LLMs via Ollama, and a lightweight Tauri (Rust) shell, it rewrites your voice input, strips speech disfluencies, handles complex command-mode edits, and injects clean text straight into any application.
 
 ---
 
-🚀 Getting Started
-Prerequisites
-Ollama Runtime: Ensure Ollama is installed and running locally with the target model:
+## 🔥 Key Features
 
-Bash
+* **100% Local & Free Alternative to Wispr Flow:** Zero subscription fees, zero cloud API dependencies, zero data leaks. Your microphone audio never leaves your machine.
+* **GPU-Accelerated Local STT:** Native integration with `whisper.cpp` using NVIDIA CUDA (`cublas`). Transcribes speech in real time with near-zero latency, bypassing sluggish Python runtimes.
+* **Intelligent LLM Post-Processing:** Powered by local Ollama models (`qwen2.5:3b`, `llama3.2:3b`, etc.). It automatically eliminates filler words (`um`, `uh`, `like`), fixes grammar, and resolves self-corrections.
+* **Smart Command Mode:** Highlight any text on your screen (in VS Code, Word, Chrome, etc.), press the hotkey, and give a natural voice command (e.g., *"make this tone more professional"* or *"correct the grammar"*). The targeted text is rewritten dynamically in place.
+* **Line-Level Context Continuity:** Uses active cursor context tracking (up to the last 300 characters of your current line) so the LLM knows whether to capitalize the next word or insert spaces seamlessly.
+* **Custom Vocabulary Injection:** Biases neural speech tokens on the fly using a customizable jargon dictionary for technical terms, code syntax, brand names, and industry jargon.
+* **Automated Process Lifecycle:** Silently launches and manages the background C++ inference process on app start, automatically terminating background instances so system VRAM/RAM stays clean.
+
+---
+
+## 🚀 Requirements & Prerequisites
+To run Dicktator locally, ensure your system has the following setup:
+
+* NVIDIA GPU (CUDA-Capable): An RTX/GTX series graphics card with up-to-date graphics drivers.
+
+* Ollama Installed & Running: Download Ollama and pull the lightweight post-processing model:
+```bash
 ollama run qwen2.5:3b
-Rust & Node Toolchains: Ensure your machine has Cargo and Node.js setup for Tauri development.
+```
+* Node.js & Rust Toolchains: Installed on your machine for running the Tauri frontend and backend hooks.
 
-NVIDIA CUDA Toolchain: Windows users require a CUDA-capable GPU (GeForce RTX series) with updated graphics drivers.
-
-Local Installation & Dev Mode
-Clone the repository and install dependency nodes:
-
-Bash
-git clone [https://github.com/YOUR_USERNAME/dicktator.git](https://github.com/YOUR_USERNAME/dicktator.git)
+## 🛠️ Installation & Development Setup
+### 1. Clone the Repository
+```bash
+git clone [https://github.com/sendc0des/dicktator.git]
 cd dicktator
 npm install
-Set up the local C++ inference engines inside your Tauri workspace:
+```
+### 2. Configure the C++ Engine Binaries
+Create a folder named bin inside src-tauri/:
 
-Create the directory structure: src-tauri/bin/
+```bash
+mkdir -p src-tauri/bin
+```
+Place the following files directly inside src-tauri/bin/:
 
-Place your compiled whisper-server.exe, target .bin model file (ggml-large-v3-turbo-q5_0.bin), and all corresponding architecture .dll files (ggml-cuda.dll, cudart64_12.dll, etc.) directly inside that folder.
+* whisper-server.exe (Compiled whisper.cpp server)
 
-Boot the execution engine:
+* ggml-large-v3-turbo-q5_0.bin (Whisper GGUF Model)
 
-Bash
+* Required CUDA .dll files (ggml-cuda.dll, cudart64_12.dll, cublas64_12.dll, etc.)
+
+### 3. Run the Development Server
+```bash
 npm run tauri dev
+```
+## 🎮 How to Use
+* Standard Dictation: Place your cursor into any text box (Notepad, VS Code, Discord, Browser), hold down Ctrl + Space, speak naturally, and release. The formatted text will type directly into the focused app.
+
+* Command Mode (Text Rewriting): Highlight any text with your mouse/keyboard, hold Ctrl + Space, speak a command (e.g., "convert this into a bulleted list" or "fix the typos"), and release. The selected text will be replaced automatically.
+
+## 📝 Customizing the Phrase Dictionary
+To bias the engine toward specific acronyms or unique names, open src-tauri/src/lib.rs and update the dictionary string inside process_with_local_whisper:
+
+```rust
+let dictionary = "Dicktator, Tauri, Rust, Ollama, whisper.cpp, GitHub, VS Code";
+```
