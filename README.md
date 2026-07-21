@@ -1,6 +1,13 @@
-# 🎙️ Dicktator
+<p align="center">
+  <!-- Replace with your own image link or relative path -->
+  <img src="src/assets/dicktator.gif" alt="Project Logo" width="200" />
+</p>
 
-> **The Privacy-First, Open-Source & Fully Local Alternative to Wispr Flow**
+<h1 align="center">dicktator</h1>
+
+<p align="center">
+  <b>Free and local wispr flow alternative</b>
+</p>
 
 **Dicktator** is a ultra-fast, system-wide voice dictation copyeditor for Windows. It acts as a free and completely offline alternative to paid dictation tools like Wispr Flow. 
 
@@ -8,7 +15,7 @@ Instead of routing your private speech and active application context to cloud s
 
 ---
 
-## 🔥 Key Features
+## Key Features
 
 * **100% Local & Free Alternative to Wispr Flow:** Zero subscription fees, zero cloud API dependencies, zero data leaks. Your microphone audio never leaves your machine.
 * **GPU-Accelerated Local STT:** Native integration with `whisper.cpp` using NVIDIA CUDA (`cublas`). Transcribes speech in real time with near-zero latency, bypassing sluggish Python runtimes.
@@ -20,7 +27,7 @@ Instead of routing your private speech and active application context to cloud s
 
 ---
 
-## 🚀 Requirements & Prerequisites
+## Requirements & Prerequisites
 To run Dicktator locally, ensure your system has the following setup:
 
 * NVIDIA GPU (CUDA-Capable): An RTX/GTX series graphics card with up-to-date graphics drivers.
@@ -56,12 +63,12 @@ Place the following files directly inside src-tauri/bin/:
 ```bash
 npm run tauri dev
 ```
-## 🎮 How to Use
+## How to Use
 * Standard Dictation: Place your cursor into any text box (Notepad, VS Code, Discord, Browser), hold down Ctrl + Space, speak naturally, and release. The formatted text will type directly into the focused app.
 
 * Command Mode (Text Rewriting): Highlight any text with your mouse/keyboard, hold Ctrl + Space, speak a command (e.g., "convert this into a bulleted list" or "fix the typos"), and release. The selected text will be replaced automatically.
 
-## 📝 Customizing the Phrase Dictionary
+## Customizing the Phrase Dictionary
 To bias the engine toward specific acronyms or unique names, open src-tauri/src/lib.rs and update the dictionary string inside process_with_local_whisper:
 
 ```rust
