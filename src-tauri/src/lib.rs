@@ -10,9 +10,7 @@ use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNa
 use windows_sys::Win32::Foundation::MAX_PATH;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, GetWindowTextW};
 use std::os::windows::process::CommandExt;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
-use std::collections::VecDeque;
+use cpal::traits::{DeviceTrait, HostTrait};
 
 struct AppState {
     is_recording: Arc<Mutex<bool>>,
@@ -43,8 +41,6 @@ fn start_recording(state: State<AppState>) -> Result<(), String> {
 // Set to true to use OpenRouter, false to use local Whisper CLI + Ollama
 const USE_CLOUD_API: bool = false; 
 
-// (Keep your existing process_with_openrouter function here)
-
 async fn process_with_local_whisper(file_path: &std::path::Path) -> Result<String, String> {
     println!("🚀 Sending audio to local C++ Whisper server...");
     let client = reqwest::Client::new();
@@ -56,14 +52,16 @@ async fn process_with_local_whisper(file_path: &std::path::Path) -> Result<Strin
         .mime_str("audio/wav")
         .unwrap();
         
-    // --- THE HALLUCINATION FIX ---
-    // We explicitly lock the engine to English and disable creative decoding
-    let dictionary = "Dicktator, Tauri, Rust, Ollama, whisper.cpp, GitHub, frontend, backend";
+    // Define the dictionary variable
+    let dictionary = "Dicktator, Tauri, Rust, Ollama, whisper.cpp, GitHub, VS Code";
+
+    // Attach `dictionary` to the form request
     let form = reqwest::multipart::Form::new()
         .part("file", part)
-        .text("language", "en")          // Force English to stop translation hallucinations
-        .text("temperature", "0.0")      // Force deterministic, greedy decoding
-        .text("response_format", "json");
+        .text("language", "en")          
+        .text("temperature", "0.0")      
+        .text("response_format", "json")
+        .text("prompt", dictionary); // <--- Make sure this line exists!
 
     let stt_res = client.post("http://127.0.0.1:8080/inference")
         .multipart(form)
@@ -110,10 +108,11 @@ async fn process_with_ollama(system_prompt: &str, user_content: &str) -> Result<
     }
 }
 
-// IMPORTANT: Replace this with your actual OpenRouter API Key
-const OPENROUTER_API_KEY: &str = "";
-
 async fn process_with_openrouter(file_path: &std::path::Path, system_prompt: &str, user_content: &str) -> Result<String, String> {
+    // Fetch API key from environment
+    let api_key = std::env::var("OPENROUTER_API_KEY")
+        .map_err(|_| "OPENROUTER_API_KEY is not set in your .env file!".to_string())?;
+
     let client = reqwest::Client::new();
     
     // --- PHASE 1: WHISPER TRANSCRIPTION ---
@@ -126,7 +125,7 @@ async fn process_with_openrouter(file_path: &std::path::Path, system_prompt: &st
     });
 
     let stt_res = client.post("https://openrouter.ai/api/v1/audio/transcriptions")
-        .header("Authorization", format!("Bearer {}", OPENROUTER_API_KEY))
+        .header("Authorization", format!("Bearer {}", api_key)) // Use dynamic api_key
         .json(&stt_payload).send().await
         .map_err(|e| format!("OpenRouter STT request failed: {}", e))?;
 
@@ -148,7 +147,7 @@ async fn process_with_openrouter(file_path: &std::path::Path, system_prompt: &st
     });
 
     let llm_res = client.post("https://openrouter.ai/api/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", OPENROUTER_API_KEY))
+        .header("Authorization", format!("Bearer {}", api_key)) // Use dynamic api_key
         .json(&llm_payload).send().await
         .map_err(|e| format!("OpenRouter LLM request failed: {}", e))?;
 
@@ -439,9 +438,8 @@ async fn stop_recording(state: State<'_, AppState>, app: tauri::AppHandle) -> Re
     }
 
     // --- SYSTEM-WIDE KEYBOARD INJECTION & HALLUCINATION FILTER ---
-    // 1. Remove all newlines so Enigo never accidentally presses "Enter"
     let safe_text = polished_text.replace('\n', " ").replace('\r', "");
-    let text_to_type = safe_text.trim().to_string();
+    let mut text_to_type = safe_text.trim().to_string();
     
     let is_hallucination = (text_to_type.starts_with('(') && text_to_type.ends_with(')')) 
                         || (text_to_type.starts_with('[') && text_to_type.ends_with(']'));
@@ -451,6 +449,12 @@ async fn stop_recording(state: State<'_, AppState>, app: tauri::AppHandle) -> Re
     }
 
     if !text_to_type.is_empty() && !is_hallucination {
+        // --- AUTOMATIC SPACING GUARANTEE ---
+        // If preceding text exists and ends without whitespace (e.g. a period or letter), prepend a space!
+        if !preceding_text.is_empty() && !preceding_text.ends_with(char::is_whitespace) {
+            text_to_type = format!(" {}", text_to_type);
+        }
+
         println!("⌨️ Injecting text via virtual hardware: \"{}\"", text_to_type);
         std::thread::spawn(move || {
             use enigo::{Enigo, Keyboard, Settings};
@@ -466,6 +470,7 @@ async fn stop_recording(state: State<'_, AppState>, app: tauri::AppHandle) -> Re
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    dotenvy::dotenv().ok();
     tauri::Builder::default()
         // Initialize the global shortcut plugin
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
