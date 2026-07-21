@@ -26,6 +26,7 @@ dist-ssr
 # Tauri/Rust Build Artifacts
 src-tauri/target/
 src-tauri/gen/schemas
+src-tauri/.env
 
 # CRITICAL: Ignore the massive AI models and pre-compiled C++ Engine
 src-tauri/bin/
